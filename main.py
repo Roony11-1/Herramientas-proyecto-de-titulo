@@ -24,9 +24,8 @@ def get_graph():
 
     return G
 
-def generateRandomRoute():
+def generateRandomRoute(nodes):
     # Elegir nodos aleatorios del grafo
-    nodes = list(G.nodes)
     orig_node = random.choice(nodes)
     dest_node = random.choice(nodes)
 
@@ -39,15 +38,26 @@ def generateRandomRoute():
     print("Ruta encontrada con", len(route), "nodos")
 
     # Visualizar ruta
-    ox.plot_graph_route(G, route)
+    
+    return route
+    
+def isOnTheRoute(node, route):
+    """
+    Checks if a given node ID is part of the calculated route list.
+    """
+    return node in route
 
 
 if __name__ == "__main__":
     G = get_graph()
+    
+    nodes = list(G.nodes)
 
     # Debug
-    viewGraph = False
-    randomRoute = True
+    viewGraph = False # Hace lo mismo lo dejo de legacy
+    viewRoute = True
+    
+    route = generateRandomRoute(nodes)
 
     print(G)
     print("Nodos:", len(G.nodes))
@@ -56,5 +66,9 @@ if __name__ == "__main__":
     if viewGraph:
         ox.plot_graph(G)
 
-    if randomRoute:
-        generateRandomRoute()
+    if viewRoute:
+        ox.plot_graph_route(G, route)
+        
+    # Obtenemos un nodo al azar
+    
+        
