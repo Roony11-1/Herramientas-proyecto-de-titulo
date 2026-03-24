@@ -1,74 +1,41 @@
-import os
-import osmnx as ox
-import networkx as nx
-import random
+from graph_service import load_graph
+from route_service import (
+    generate_route_from_coords,
+    route_length,
+    route_time,
+    route_cost
+)
+from plot_service import plot_custom_route
 
-# Nombre del archivo cache
-FILE = "santiago.graphml"
+def main():
+    G = load_graph()
 
-def get_graph():
-    # Si el archivo existe, cargar desde disco
-    if os.path.exists(FILE):
-        print("Cargando grafo desde archivo...")
-        G = ox.load_graphml(FILE)
-    else:
-        print("Descargando grafo desde OpenStreetMap...")
-        G = ox.graph_from_place(
-            "Santiago, Chile",
-            network_type="drive",
-            custom_filter='["highway"~"motorway|trunk|primary|secundary"]'
-        )
+    # blanco encalada hipodromo
+    home_lat = -33.457208
+    home_lon = -70.664937
 
-        print("Guardando grafo en cache...")
-        ox.save_graphml(G, FILE)
+    # independencia hipodromo chile
+    metro_lat = -33.407140
+    metro_lon = -70.660949
 
-    return G
+    route = generate_route_from_coords(
+        G,
+        home_lat, home_lon,
+        metro_lat, metro_lon
+    )
 
-def generateRandomRoute(nodes):
-    # Elegir nodos aleatorios del grafo
-    orig_node = random.choice(nodes)
-    dest_node = random.choice(nodes)
+    if not route:
+        print("No se pudo generar ruta")
+        return
 
-    print("Origen:", orig_node)
-    print("Destino:", dest_node)
+    print("\n--- MÉTRICAS ---")
+    print("Distancia (m):", round(route_length(G, route), 2))
+    print("Tiempo (s):", round(route_time(G, route), 2))
+    print("Costo:", route_cost(G, route))
 
-    # Calcular ruta más corta (por distancia)
-    route = nx.shortest_path(G, orig_node, dest_node, weight="length")
-
-    print("Ruta encontrada con", len(route), "nodos")
-
-    # Visualizar ruta
+    plot_custom_route(G, route)
     
-    return route
-    
-def isOnTheRoute(node, route):
-    """
-    Checks if a given node ID is part of the calculated route list.
-    """
-    return node in route
 
 
 if __name__ == "__main__":
-    G = get_graph()
-    
-    nodes = list(G.nodes)
-
-    # Debug
-    viewGraph = False # Hace lo mismo lo dejo de legacy
-    viewRoute = True
-    
-    route = generateRandomRoute(nodes)
-
-    print(G)
-    print("Nodos:", len(G.nodes))
-    print("Edges:", len(G.edges))
-
-    if viewGraph:
-        ox.plot_graph(G)
-
-    if viewRoute:
-        ox.plot_graph_route(G, route)
-        
-    # Obtenemos un nodo al azar
-    
-        
+    main()
