@@ -1,22 +1,22 @@
 from graph_service import load_graph
-from route_service import (
-    generate_route_from_coords,
-    route_length,
-    route_time,
-    route_cost
-)
-from plot_service import plot_custom_route
+from route_service import generate_route_from_coords
+from metrics_service import route_length, route_time
+from cost_service import route_cost
+from plot_service import plot_custom_route, plot_graph_only
+
 
 def main():
     G = load_graph()
 
-    # blanco encalada hipodromo
-    home_lat = -33.457208
-    home_lon = -70.664937
+    # plot_graph_only(G)
 
-    # independencia hipodromo chile
-    metro_lat = -33.407140
-    metro_lon = -70.660949
+    # gran avenida av central
+    home_lat = -33.568327
+    home_lon = -70.686342
+
+    # Av vitacura padre hurtado norte
+    metro_lat = -33.383657
+    metro_lon = -70.551090
 
     route = generate_route_from_coords(
         G,
@@ -29,12 +29,16 @@ def main():
         return
 
     print("\n--- MÉTRICAS ---")
-    print("Distancia (m):", round(route_length(G, route), 2))
-    print("Tiempo (s):", round(route_time(G, route), 2))
-    print("Costo:", route_cost(G, route))
+
+    distance = route_length(G, route)
+    time = route_time(G, route)
+    cost = route_cost(G, route)
+
+    print("Distancia (m):", round(distance, 2))
+    print("Tiempo (s):", round(time, 2))
+    print("Costo:", cost)
 
     plot_custom_route(G, route)
-    
 
 
 if __name__ == "__main__":

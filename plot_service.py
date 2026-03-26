@@ -3,6 +3,14 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from typing import List
 
+def plot_graph_only(G: nx.MultiDiGraph) -> None:
+    ox.plot_graph(
+        G,
+        node_size=0,
+        edge_color="white",
+        edge_linewidth=0.5,
+        bgcolor="black"
+    )
 
 def plot_custom_route(G: nx.MultiDiGraph, route: List[int]) -> None:
     route_edges = set(zip(route[:-1], route[1:]))
@@ -25,6 +33,11 @@ def plot_custom_route(G: nx.MultiDiGraph, route: List[int]) -> None:
         if highway == "motorway":
             color = "orange"
             width = 1.5
+            
+        # --- PEAJES ---
+        if data.get("toll"):
+            color = "yellow"
+            width = 2
 
         # --- RUTA ---
         if (u, v) in route_edges:
