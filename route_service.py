@@ -8,7 +8,8 @@ def generate_route_from_coords(
     orig_lat: float,
     orig_lon: float,
     dest_lat: float,
-    dest_lon: float
+    dest_lon: float,
+    weight: str = "length"
 ) -> Optional[List[int]]:
 
     orig_node = ox.distance.nearest_nodes(G, orig_lon, orig_lat)
@@ -21,7 +22,7 @@ def generate_route_from_coords(
         return None
 
     try:
-        return nx.shortest_path(G, orig_node, dest_node, weight="length")
+        return nx.shortest_path(G, orig_node, dest_node, weight=weight)
     except nx.NetworkXNoPath:
         return None
 

@@ -2,30 +2,10 @@ from typing import List
 import networkx as nx
 from utils.graph_utils import get_edge
 
-
-def route_cost(G: nx.MultiDiGraph, route: List[int]) -> int:
-    cost = 0
-
+def route_cost(G, route):
+    # Sumamos 500 solo si el atributo 'toll' es True
+    total = 0
     for u, v in zip(route[:-1], route[1:]):
-        edge = get_edge(G, u, v)
-        if not edge:
-            continue
-
-        highway = edge.get("highway")
-
-        if isinstance(highway, list):
-            highway = highway[0]
-
-        # --- COSTO BASE ---
-        if highway == "motorway":
-            cost += 0
-        elif highway in ["trunk", "primary"]:
-            cost += 0
-        elif highway in ["secondary"]:
-            cost += 0
-
-        # --- PEAJE ---
-        if edge.get("toll"):
-            cost += 500
-
-    return cost
+        if G.edges[u, v, 0].get("toll"):
+            total += 500
+    return total
