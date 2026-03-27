@@ -1,5 +1,5 @@
-/cache
-/_pycache__
+cache
+__pycache__
 
 # Entornos virtuales
 venv/
