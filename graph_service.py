@@ -6,7 +6,7 @@ import pandas as pd
 from tqdm import tqdm
 from typing import List
 
-from weight_service import calculate_edge_metrics
+from weight_service import REQUIRED_METRICS, calculate_edge_metrics
 
 FILE = "santiago_urbano.graphml"
 TOLLS_FILE = "tolls.geojson"
@@ -25,80 +25,107 @@ places: List[str] = [
     "La Pintana, Chile", "Peñalolén, Chile", "Vitacura, Chile",
     "La Granja, Chile", "Providencia, Chile"
 ]
-
 def load_graph() -> nx.MultiDiGraph:
     print("=== INICIO load_graph ===")
 
-    # 1. Intentar cargar desde Caché
     if os.path.exists(FILE):
         try:
             print("[CACHE] Cargando grafo desde archivo...")
             G = ox.load_graphml(FILE)
             
-            # Verificación de integridad de datos (pesos)
+            # --- NORMALIZACIÓN DE TIPOS (EL FIX CRÍTICO) ---
+            # GraphML guarda booleanos como strings "True"/"False". Hay que revertirlo.
+            for u, v, k, data in G.edges(keys=True, data=True):
+                # 1. Corregir Peajes (evita que todo sea peaje al recargar)
+                if "toll" in data:
+                    # Si el valor es el string "True", se vuelve booleano True, sino False
+                    data["toll"] = str(data["toll"]).lower() == "true"
+                else:
+                    data["toll"] = False
+                
+                # 2. Corregir IDs de pórticos (asegurar que no sean listas)
+                if "ref" in data and isinstance(data["ref"], list):
+                    data["ref"] = data["ref"][0]
+
+                # 3. Corregir Métricas numéricas (asegurar que sean float)
+                for field in REQUIRED_METRICS:
+                    if field in data:
+                        try:
+                            data[field] = float(data[field])
+                        except (ValueError, TypeError):
+                            data[field] = 0.0
+
+            # --- VALIDACIÓN DE CONSISTENCIA ---
             sample_edge = next(iter(G.edges(data=True)))[2]
-            
-            needs_prepare = (
-                "time" not in sample_edge or 
-                "cost" not in sample_edge or 
-                "length" not in sample_edge or
-                "balanced" not in sample_edge or
-                isinstance(sample_edge.get("cost"), (str, list))
+            # Si faltan métricas o siguen siendo basura, recalculamos
+            needs_prepare = any(
+                field not in sample_edge or not isinstance(sample_edge.get(field), (int, float))
+                for field in REQUIRED_METRICS
             )
 
             if needs_prepare:
-                print("[INFO] Pesos incompletos o corruptos. Recalculando...")
+                print(f"[INFO] Grafo inconsistente en disco. Re-calculando métricas...")
                 _prepare_weights(G)
-                print("[CACHE] Guardando grafo actualizado...")
                 ox.save_graphml(G, FILE)
             
-            # Si llegó aquí, el grafo está perfecto
             _print_graph_info(G)
             _debug_tolls(G)
             return G
 
         except Exception as e:
-            print(f"[ERROR] Archivo GraphML corrupto o vacío: {e}")
-            print("[REINTENTO] Eliminando archivo dañado y descargando de nuevo...")
-            if os.path.exists(FILE):
-                os.remove(FILE)
-            # Al no retornar aquí, el código seguirá naturalmente al bloque de descarga
-    
-    # 2. Descarga desde cero (Si no hay archivo o estaba corrupto)
-    print("[DOWNLOAD] Iniciando descarga de Santiago Urbano...")
+            print(f"[ERROR] Fallo en caché al procesar tipos: {e}")
+            if os.path.exists(FILE): os.remove(FILE)
+
+    # 2. Descarga y Limpieza (Flujo Normal si no hay caché o falló)
+    print("[DOWNLOAD] Iniciando descarga fresca de Santiago...")
     G = _download_graph(places)
-    
-    print("[CLEAN] Limpiando grafo (componentes desconectados)...")
     G = _clean_graph(G)
 
-    # 3. Procesar Peajes
+    # 3. Peajes (Marcado y Propagación)
     toll_gdf = load_toll_points()
     if toll_gdf is not None:
         mark_tolls_in_graph(G, toll_gdf)
-        propagate_tolls_to_edges(G)
+        propagate_tolls_to_edges(G) # Esto pone toll=True/False REALES
 
-    # 4. Preparar pesos (length, time, cost, balanced)
-    print("[WEIGHTS] Calculando métricas de ruteo...")
+    # 4. Preparación de Pesos
     _prepare_weights(G)
 
-    # 5. Guardar Caché final
-    print(f"[CACHE] Guardando grafo en {FILE}...")
+    print(f"[CACHE] Guardando grafo normalizado en {FILE}...")
     ox.save_graphml(G, FILE)
-
-    _print_graph_info(G)
+    
     _debug_tolls(G)
     return G
 
 def _prepare_weights(G):
-    print("[WEIGHTS] Aplicando modelo de costos y fricción...")
-    for u, v, k, data in G.edges(keys=True, data=True):
+    """Aplica el cálculo masivo a todas las aristas."""
+    print(f"[WEIGHTS] Procesando {len(G.edges)} aristas...")
+    
+    # IMPORTANTE: keys=True para que devuelva (u, v, k, data)
+    for u, v, k, data in tqdm(G.edges(keys=True, data=True), desc="Calculando pesos"):
         metrics = calculate_edge_metrics(data)
+        data.update(metrics)
+
+def propagate_tolls_to_edges(G: nx.MultiDiGraph) -> None:
+    print("[DEBUG] Iniciando propagación de peajes a aristas...")
+    edges_with_toll = 0
+    
+    for u, v, k, data in G.edges(keys=True, data=True):
+        # Usamos .get(..., False) para asegurar un booleano puro
+        node_has_toll = G.nodes[u].get("toll", False)
         
-        # Seteamos los nuevos pesos en el grafo
-        data["length"] = metrics["length"]
-        data["time"] = metrics["time"]
-        data["cost"] = metrics["cost"]
-        data["balanced"] = metrics["balanced"]
+        if node_has_toll:
+            data["toll"] = True
+            ref = G.nodes[u].get("ref")
+            data["ref"] = ref[0] if isinstance(ref, list) else ref
+            edges_with_toll += 1
+        else:
+            # LIMPIEZA TOTAL: Eliminamos el rastro de peajes previos
+            data["toll"] = False
+            data["ref"] = None
+            # Si quieres ser extra precavido para que el costo no sea basura:
+            data["cost"] = 0.0 
+
+    print(f"[DEBUG] Propagación terminada. Aristas con peaje real: {edges_with_toll}")
 
 # ======================
 # TOLLS & DOWNLOAD (Mantenidos igual, con mejoras de estabilidad)
@@ -134,18 +161,38 @@ def _clean_graph(G: nx.MultiDiGraph) -> nx.MultiDiGraph:
     return G.subgraph(largest_cc).copy()
 
 def mark_tolls_in_graph(G: nx.MultiDiGraph, gdf: gpd.GeoDataFrame) -> None:
-    print("[TOLLS] Marcando nodos...")
-    for _, row in gdf.iterrows():
-        point = row.geometry.centroid
+    print("[TOLLS] Marcando nodos y asignando IDs...")
+    found_counter = 0
+    
+    # 1. FILTRADO CRÍTICO: Solo queremos los puntos (Pórticos)
+    # Ignoramos las geometrías tipo LineString o MultiLineString que representan la calle completa
+    # Y nos aseguramos de que el highway sea 'toll_gantry'
+    gdf_puntos = gdf[gdf.geometry.type == 'Point'].copy()
+    
+    for _, row in gdf_puntos.iterrows():
+        # Solo procesamos si es un pórtico real con ID
+        gantry_ref = row.get("ref")
+        if not gantry_ref:
+            continue
+            
+        point = row.geometry
+        
         try:
+            # Encontrar el nodo más cercano al punto exacto del pórtico
             node = ox.distance.nearest_nodes(G, point.x, point.y)
+            
+            # Asignar atributos al NODO
             G.nodes[node]["toll"] = True
-        except: continue
-
-def propagate_tolls_to_edges(G: nx.MultiDiGraph) -> None:
-    for u, v, k, data in G.edges(keys=True, data=True):
-        if G.nodes[u].get("toll") or G.nodes[v].get("toll"):
-            data["toll"] = True
+            # Limpiamos el ref por si viene como lista o con basura
+            clean_ref = gantry_ref[0] if isinstance(gantry_ref, list) else gantry_ref
+            G.nodes[node]["ref"] = str(clean_ref).strip().upper()
+            
+            found_counter += 1
+        except Exception as e:
+            print(f"[ERROR] No se pudo marcar nodo para ref {gantry_ref}: {e}")
+            continue
+            
+    print(f"[DEBUG] Nodos marcados como peaje: {found_counter} (de {len(gdf_puntos)} puntos en GeoJSON)")
 
 def _debug_tolls(G):
     total = sum(1 for _, _, _, d in G.edges(keys=True, data=True) if d.get("toll"))

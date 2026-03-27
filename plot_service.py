@@ -91,7 +91,7 @@ def plot_multiple_routes(G, routes: List[List[int]], names: List[str] = None) ->
         
         # Resaltar peajes (opcional, fondo sutil)
         if data.get("toll"):
-            color = "#444400" # Amarillo muy oscuro
+            color = "#3D4400" # Amarillo muy oscuro
             width = 0.8
 
         # Verificar si la arista pertenece a alguna de las rutas
