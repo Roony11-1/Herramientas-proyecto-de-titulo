@@ -1,129 +1,113 @@
 import osmnx as ox
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import networkx as nx
 from typing import List
 
+# --- ESTILOS GLOBALES ---
+BG_COLOR = "black"
+STREET_COLOR = "#F0F0F0"  # Blanco humo sutil
+TOLL_COLOR = "#FFFF00"    # Amarillo Neón
+STREET_WIDTH = 0.4
+TOLL_WIDTH = 3.5          # Grosor masivo para que el TAG se note
+
 def plot_graph_only(G: nx.MultiDiGraph) -> None:
+    """Visualización básica del esqueleto urbano."""
     ox.plot_graph(
         G,
         node_size=0,
-        edge_color="white",
-        edge_linewidth=0.5,
-        bgcolor="black"
+        edge_color=STREET_COLOR,
+        edge_linewidth=STREET_WIDTH,
+        bgcolor=BG_COLOR
     )
 
 def plot_custom_route(G: nx.MultiDiGraph, route: List[int]) -> None:
+    """Visualización de una ruta única con resalte de peajes."""
     route_edges = set(zip(route[:-1], route[1:]))
-
-    edge_colors = []
-    edge_widths = []
+    edge_colors, edge_widths = [], []
 
     for u, v, k, data in G.edges(keys=True, data=True):
-        highway = data.get("highway")
+        # 1. Base: Calle blanca sutil
+        color = STREET_COLOR
+        width = STREET_WIDTH
 
-        # normalizar (puede venir como lista)
-        if isinstance(highway, list):
-            highway = highway[0]
-
-        # --- BASE ---
-        color = "white"
-        width = 0.5
-
-        # --- AUTOPISTAS ---
+        # 2. Resaltar Autopistas (Opcional, naranja sutil)
+        highway = data.get("highway", "")
+        if isinstance(highway, list): highway = highway[0]
         if highway == "motorway":
-            color = "orange"
-            width = 1.5
+            color = "#FFA500" 
+            width = 0.8
             
-        # --- PEAJES ---
+        # 3. TAGs (Prioridad visual media)
         if data.get("toll"):
-            color = "yellow"
-            width = 0.7
+            color = TOLL_COLOR
+            width = TOLL_WIDTH
 
-        # --- RUTA ---
+        # 4. RUTA (Prioridad máxima)
         if (u, v) in route_edges:
-            color = "red"
-            width = 2
+            color = "#FF0000" # Rojo brillante para la ruta única
+            width = 2.5
 
         edge_colors.append(color)
         edge_widths.append(width)
 
-    fig, ax = ox.plot_graph(
-        G,
-        edge_color=edge_colors,
-        edge_linewidth=edge_widths,
-        node_size=0,
-        bgcolor="black",
-        show=False,
-        close=False
+    ox.plot_graph(
+        G, edge_color=edge_colors, edge_linewidth=edge_widths,
+        node_size=0, bgcolor=BG_COLOR
     )
 
-    plt.show()
-    
-import osmnx as ox
-import matplotlib.pyplot as plt
-from typing import List
-
 def plot_multiple_routes(G, routes: List[List[int]], names: List[str] = None) -> None:
-    # 1. Definir paleta de colores dinámica
-    # Si no hay nombres, usamos genéricos
+    """Comparativa de múltiples rutas con leyenda y tags destacados."""
     if names is None:
         names = [f"Ruta {i+1}" for i in range(len(routes))]
     
-    # Colores vivos para que resalten sobre el fondo negro
-    colors = ['#00FF00', '#0000FF', '#FF0000', '#FF00FF', '#00FFFF', '#FFA500']
-    
-    # 2. Pre-procesar las rutas como sets de aristas para búsqueda rápida O(1)
-    route_edge_sets = []
-    for r in routes:
-        if r: # Validar que la ruta no sea None
-            route_edge_sets.append(set(zip(r[:-1], r[1:])))
-        else:
-            route_edge_sets.append(set())
+    # Colores eléctricos para las rutas
+    # Paleta expandida de 10 colores de alto contraste para fondo negro
+    # 1. Verde Neón, 2. Magenta, 3. Cian, 4. Naranja Eléctrico, 5. Azul Real, 
+    # 6. Rojo Brillante, 7. Lima, 8. Violeta, 9. Turquesa, 10. Rosa Coral
+    route_colors = [
+        '#00FF00', '#FF00FF', '#00FFFF', '#FF4500', '#1E90FF', 
+        '#FF0000', '#C0FF00', '#8A2BE2', '#40E0D0', '#FF6F61'
+    ]
+    route_edge_sets = [set(zip(r[:-1], r[1:])) if r else set() for r in routes]
 
-    edge_colors = []
-    edge_widths = []
+    edge_colors, edge_widths = [], []
 
-    # 3. Iterar sobre las aristas del grafo una sola vez
     for u, v, k, data in G.edges(keys=True, data=True):
-        # Valores base (calles normales)
-        color = "#CACACA" # Gris oscuro para el fondo
-        width = 0.5
+        # 1. Base
+        color = STREET_COLOR
+        width = STREET_WIDTH
         
-        # Resaltar peajes (opcional, fondo sutil)
+        # 2. PÓRTICOS (Se dibujan con el ancho máximo para que "brillen" bajo la ruta)
         if data.get("toll"):
-            color = "#3D4400" # Amarillo muy oscuro
-            width = 0.8
-
-        # Verificar si la arista pertenece a alguna de las rutas
-        # Lo hacemos en orden inverso para que la primera ruta de la lista 
-        # quede "arriba" si se solapan
+            color = TOLL_COLOR
+            width = TOLL_WIDTH
+            
+        # 3. RUTAS (Se superponen)
         for i in range(len(route_edge_sets)-1, -1, -1):
             if (u, v) in route_edge_sets[i]:
-                color = colors[i % len(colors)]
-                width = 2.5 # Un poco más gruesa para que se vea bien
-                break # Si ya encontramos que es de una ruta, paramos
+                color = route_colors[i % len(route_colors)]
+                width = 2.2
+                break
 
         edge_colors.append(color)
         edge_widths.append(width)
 
-    # 4. Dibujar el mapa
     fig, ax = ox.plot_graph(
-        G,
-        edge_color=edge_colors,
-        edge_linewidth=edge_widths,
-        node_size=0,
-        bgcolor="black",
-        show=False,
-        close=False
+        G, edge_color=edge_colors, edge_linewidth=edge_widths,
+        node_size=0, bgcolor=BG_COLOR, show=False, close=False
     )
 
-    # 5. Añadir Leyenda Dinámica
-    from matplotlib.lines import Line2D
-    custom_lines = [
-        Line2D([0], [0], color=colors[i % len(colors)], lw=3) 
-        for i in range(len(routes))
-    ]
-    ax.legend(custom_lines, names, loc='upper right', prop={'size': 10}, frameon=True)
+    # --- LEYENDA PRO ---
+    custom_lines = [Line2D([0], [0], color=route_colors[i % len(route_colors)], lw=3) for i in range(len(routes))]
+    custom_lines.append(Line2D([0], [0], color=TOLL_COLOR, lw=5))
+    
+    legend_labels = names + ["Pórtico TAG (Peaje)"]
+    leg = ax.legend(custom_lines, legend_labels, loc='upper right', prop={'size': 9, 'weight': 'bold'})
+    
+    leg.get_frame().set_facecolor('#111111')
+    leg.get_frame().set_edgecolor('white')
+    for text in leg.get_texts(): text.set_color("white")
 
-    plt.title("Comparativa de Rutas - Santiago", color="white")
+    plt.title("COMPARATIVA DE RUTAS Y COBRO DE PEAJES", color="white", fontsize=12, pad=10)
     plt.show()

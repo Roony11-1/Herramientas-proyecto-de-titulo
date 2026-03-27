@@ -50,9 +50,14 @@ def load_graph() -> nx.MultiDiGraph:
                 # 3. Corregir Métricas numéricas (asegurar que sean float)
                 for field in REQUIRED_METRICS:
                     if field in data:
+                        # Forzamos la conversión a float puro
+                        val = data[field]
+                        if isinstance(val, str):
+                            # Limpiamos posibles caracteres raros del XML
+                            val = val.replace('[', '').replace(']', '').replace("'", "")
                         try:
-                            data[field] = float(data[field])
-                        except (ValueError, TypeError):
+                            data[field] = float(val)
+                        except:
                             data[field] = 0.0
 
             # --- VALIDACIÓN DE CONSISTENCIA ---
@@ -110,19 +115,21 @@ def propagate_tolls_to_edges(G: nx.MultiDiGraph) -> None:
     edges_with_toll = 0
     
     for u, v, k, data in G.edges(keys=True, data=True):
-        # Usamos .get(..., False) para asegurar un booleano puro
-        node_has_toll = G.nodes[u].get("toll", False)
+        # 1. Miramos si el nodo de origen (u) O el de destino (v) es peaje
+        u_is_toll = G.nodes[u].get("toll", False)
+        v_is_toll = G.nodes[v].get("toll", False)
         
-        if node_has_toll:
+        if u_is_toll or v_is_toll:
             data["toll"] = True
-            ref = G.nodes[u].get("ref")
+            # Priorizamos el ref del nodo que sea peaje
+            ref_node = G.nodes[u] if u_is_toll else G.nodes[v]
+            ref = ref_node.get("ref")
             data["ref"] = ref[0] if isinstance(ref, list) else ref
             edges_with_toll += 1
         else:
-            # LIMPIEZA TOTAL: Eliminamos el rastro de peajes previos
             data["toll"] = False
             data["ref"] = None
-            # Si quieres ser extra precavido para que el costo no sea basura:
+            # Aseguramos que el costo no traiga basura de sesiones previas
             data["cost"] = 0.0 
 
     print(f"[DEBUG] Propagación terminada. Aristas con peaje real: {edges_with_toll}")

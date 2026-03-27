@@ -23,25 +23,76 @@ def print_metrics(name, route_data):
         # Opcional: imprimir los nombres de las autopistas usadas
         highways = set([g['highway'] for g in gantries])
         print(f"Autopistas: {', '.join(highways)}")
+        
+def generate_3_point_route(G, lat1, lon1, lat2, lon2, lat3, lon3, **kwargs):
+    """
+    Calcula la ruta pasando por un punto intermedio (A -> B -> C)
+    y devuelve un objeto con la misma estructura que generate_route_with_details.
+    """
+    
+    # Tramo 1: Origen al Punto de Paso (A -> B)
+    res1 = generate_route_with_details(G, lat1, lon1, lat2, lon2, **kwargs)
+    
+    # Tramo 2: Punto de Paso al Destino (B -> C)
+    res2 = generate_route_with_details(G, lat2, lon2, lat3, lon3, **kwargs)
+    
+    # Si cualquiera de los dos tramos falla, la ruta completa falla
+    if not res1["success"]:
+        return {"success": False, "error": f"Tramo 1 falló: {res1.get('error')}"}
+    if not res2["success"]:
+        return {"success": False, "error": f"Tramo 2 falló: {res2.get('error')}"}
+
+    # --- UNIÓN DE CAMINOS ---
+    # El último nodo de path1 es el mismo que el primero de path2.
+    # Usamos [1:] para no duplicar el nodo intermedio en la lista.
+    full_path = res1["path"] + res2["path"][1:]
+    
+    # --- UNIÓN DE MÉTRICAS (SUMA DE SUMMARIES) ---
+    s1 = res1["summary"]
+    s2 = res2["summary"]
+    
+    combined_summary = {
+        "total_toll_cost": round(s1["total_toll_cost"] + s2["total_toll_cost"], 2),
+        "total_time_minutes": round(s1["total_time_minutes"] + s2["total_time_minutes"], 1),
+        "total_distance_km": round(s1["total_distance_km"] + s2["total_distance_km"], 2),
+        # Llaves críticas para compatibilidad total con print_metrics y cálculos internos:
+        "total_time_seconds": round(s1["total_time_seconds"] + s2["total_time_seconds"], 2),
+        "total_distance_meters": round(s1["total_distance_meters"] + s2["total_distance_meters"], 2)
+    }
+    
+    # --- UNIÓN DE PÓRTICOS ---
+    # Combinamos ambas listas de pórticos detectados
+    all_gantries = res1.get("gantries_detected", []) + res2.get("gantries_detected", [])
+
+    return {
+        "success": True,
+        "type": kwargs.get("weight_type", "balanced"),
+        "path": full_path,
+        "summary": combined_summary,
+        "gantries_detected": all_gantries
+    }
 
 def main():
-    # 1. Carga del grafo con todos los pesos pre-calculados
+    # 1. Carga del grafo
     G = load_graph()
 
-    # 2. Coordenadas de prueba (Maipú a Vitacura)
-    # Asegúrate de usar nombres de variables consistentes
-    lat_orig, lon_orig = -33.467000, -70.758000
-    lat_dest, lon_dest = -33.378000, -70.573000
+    # --- CONFIGURACIÓN DE PUNTOS ---
+    # Origen: Maipú (Sector Pajaritos)
+    lat_orig, lon_orig = -33.4820, -70.7620
+    # Este punto está ANTES del nudo con Costanera Norte
+    lat_mid, lon_mid = -33.4615, -70.6625
+    # Destino: Vitacura (Parque Bicentenario)
+    lat_dest, lon_dest = -33.3980, -70.5900
 
     print("\n=== CALCULANDO ESCENARIOS DE RUTA EN SANTIAGO ===")
 
-    # ESCENARIO A: Equilibrada (La mejor relación Tiempo/Dinero)
+    # ESCENARIO A: Equilibrada (Directa)
     res_balanced = generate_route_with_details(
         G, lat_orig, lon_orig, lat_dest, lon_dest, 
         weight_type="balanced"
     )
 
-    # ESCENARIO B: Súper Ahorro (Evitando TODAS las autopistas con TAG)
+    # ESCENARIO B: Súper Ahorro (Sin TAG)
     autopistas_tag = ["Autopista Central", "Costanera Norte", "Vespucio Norte", "Vespucio Sur"]
     res_cheap = generate_route_with_details(
         G, lat_orig, lon_orig, lat_dest, lon_dest, 
@@ -49,17 +100,27 @@ def main():
         weight_type="cost"
     )
 
-    # ESCENARIO C: Evitando solo Autopista Central (Restricción específica)
+    # ESCENARIO C: Evitando solo Autopista Central
     res_no_central = generate_route_with_details(
         G, lat_orig, lon_orig, lat_dest, lon_dest, 
         exclude_highways=["Autopista Central"],
         weight_type="balanced"
     )
 
-    # ESCENARIO D: Distancia Corta (Ignora costos y tráfico, solo metros)
+    # ESCENARIO D: Distancia Corta (Solo metros)
     res_shortest = generate_route_with_details(
         G, lat_orig, lon_orig, lat_dest, lon_dest, 
         weight_type="length"
+    )
+
+    # NUEVO ESCENARIO E: Ruta Forzada (3 Puntos: Maipú -> Central/Costanera -> Vitacura)
+    # Este escenario garantiza que pase por el nudo de autopistas para probar los cobros
+    res_forced = generate_3_point_route(
+        G, 
+        lat_orig, lon_orig,   # Punto 1
+        lat_mid, lon_mid,     # Punto 2 (Paso)
+        lat_dest, lon_dest,   # Punto 3
+        weight_type="balanced"
     )
 
     # 3. Lista para procesar y graficar
@@ -67,7 +128,8 @@ def main():
         ("Equilibrada (Sugerida)", res_balanced),
         ("Súper Ahorro (Sin TAG)", res_cheap),
         ("Evitando A. Central", res_no_central),
-        ("Distancia Corta", res_shortest)
+        ("Distancia Corta", res_shortest),
+        ("Forzada (Central + Costanera)", res_forced) # <--- Nueva ruta en la comparativa
     ]
 
     # 4. Mostrar métricas en consola
@@ -79,12 +141,12 @@ def main():
         print_metrics(nombre, res)
 
     # 5. Visualización en el Mapa
-    # Filtramos solo las que tuvieron éxito para que el plot no explote
     valid_paths = [r["path"] for n, r in rutas_para_comparar if r and r.get("success")]
     valid_names = [n for n, r in rutas_para_comparar if r and r.get("success")]
 
     if valid_paths:
         print("\n[SISTEMA] Abriendo mapa comparativo...")
+        # El plot mostrará todas las rutas y los pórticos en amarillo neón
         plot_multiple_routes(G, valid_paths, valid_names)
     else:
         print("\n[ERROR] No se pudo generar ninguna ruta válida para graficar.")

@@ -2,7 +2,7 @@ import osmnx as ox
 import networkx as nx
 from typing import List, Dict, Any
 from config import ALL_GANTRY_DATA, TOLL_COSTS_DEFAULT, CLP_PER_SECOND
-from weight_service import get_real_time
+from weight_service import get_real_time, get_balanced_weight
 
 def generate_route_with_details(
     G: nx.MultiDiGraph,
@@ -23,48 +23,16 @@ def generate_route_with_details(
     if not _validate_node_distance(G, dest_node, dest_lat, dest_lon): 
         return {"success": False, "error": "Destino fuera de rango"}
 
-    def weight_logic(u, v, edge_data):
-        data = edge_data[0]
-        node_u = G.nodes[u]
-        
-        highway = data.get("highway", "unclassified")
-        if isinstance(highway, list): highway = highway[0]
-        
-        gantry_ref = node_u.get("ref")
-        if isinstance(gantry_ref, list): gantry_ref = gantry_ref[0]
-        # Limpieza de ID
-        if gantry_ref: gantry_ref = str(gantry_ref).strip().upper().replace(" ", "")
-
-        # 1. Lógica de Costo (Consistente)
-        cost = 0
-        if node_u.get("toll"):
-            if gantry_ref in ALL_GANTRY_DATA:
-                # Verificar exclusión
-                if weight_type != "length" and ALL_GANTRY_DATA[gantry_ref]["highway_name"] in exclude_highways:
-                    return float('inf')
-                cost = ALL_GANTRY_DATA[gantry_ref]["price"]
-            else:
-                # Fallback si el ID no está en nuestro dict
-                cost = TOLL_COSTS_DEFAULT.get(highway, 650)
-
-        # 2. Retorno según criterio
-        if weight_type == "cost":
-            return float(cost + (data.get("length", 0) * 0.000001))
-        
-        if weight_type == "length":
-            return float(data.get("length", 0))
-
-        time_sec = get_real_time(data.get("length", 0), highway, data.get("maxspeed", 50))
-        
-        if weight_type == "time":
-            return float(time_sec)
-            
-        # Balanced: Costo + (Tiempo * Valor del tiempo)
-        return float(cost + (time_sec * CLP_PER_SECOND))
-
     try:
-        # 3. Cálculo de la ruta
-        path = nx.shortest_path(G, orig_node, dest_node, weight=weight_logic)
+        # En lugar de weight='balanced', usa una lambda para pasar el Grafo G
+        path = nx.shortest_path(
+            G, orig_node, dest_node, 
+            weight=lambda u, v, d: get_balanced_weight(
+                u, v, d, G, 
+                weight_type=weight_type,
+                exclude_highways=exclude_highways
+            )
+        )
         
         # 4. Métricas finales (Siempre calculamos todo para el resumen)
         gantries, total_toll, total_time, total_distance = _get_route_metrics(G, path)
