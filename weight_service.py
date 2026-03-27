@@ -35,38 +35,34 @@ def get_real_time(length, highway, speed_kph):
     return length / real_speed_mps
 
 def get_monetary_cost(length, highway, gantry_id, is_toll, exclude_highways=None):
-    """
-    Calcula el costo CLP. Recibe el ID ya extraído y el estado de peaje.
-    """
-    exclude_highways = exclude_highways or []
-
-    # 1. Caso base: No es peaje
-    if not is_toll:
-        return float(length * 0.000001)
-
-    # 2. Normalización del ID (si existe)
-    # "p-205" -> "P205"
-    if gantry_id:
-        gantry_id = str(gantry_id).strip().upper().replace(" ", "").replace("-", "")
+    if not is_toll: return float(length * 0.000001)
     
-    # 3. Buscar en tu base de datos (ALL_GANTRY_DATA)
-    # Importante: Asegúrate que ALL_GANTRY_DATA esté importado aquí
-    gantry_info = ALL_GANTRY_DATA.get(gantry_id)
+    clean_id = str(gantry_id).strip().upper().replace(" ", "").replace("-", "")
     
+    # Intentamos encontrar el ID con los prefijos conocidos
+    # Esto resuelve el problema de tener varios "P1"
+    possible_keys = [
+        clean_id,           # ID directo (PA2, etc)
+        f"AC_{clean_id}",    # Autopista Central
+        f"CN_{clean_id}",    # Costanera
+        f"VN_{clean_id}",    # Vespucio Norte
+        f"VS_{clean_id}"     # Vespucio Sur
+    ]
+    
+    gantry_info = None
+    for key in possible_keys:
+        if key in ALL_GANTRY_DATA:
+            gantry_info = ALL_GANTRY_DATA[key]
+            break
+
     if gantry_info:
-        # Bloqueo por nombre de concesionaria/autopista
-        if gantry_info.get("highway_name") in exclude_highways:
-            return float('inf') 
-        toll_price = gantry_info["price"]
-    else:
-        # 4. FALLBACK: Si es peaje pero el ID no está mapeado
-        highway_key = highway[0] if isinstance(highway, list) else highway
-        toll_price = TOLL_COSTS_DEFAULT.get(highway_key, 650)
-        
-        # Log de depuración para tu proyecto
-        print(f"[MISSING DATA] Pórtico '{gantry_id}' en '{highway_key}' no mapeado.")
+        if gantry_info["highway_name"] in (exclude_highways or []):
+            return float('inf')
+        return float(gantry_info["price"])
     
-    return float(toll_price)
+    # Fallback si nada funciona
+    highway_key = highway[0] if isinstance(highway, list) else highway
+    return float(TOLL_COSTS_DEFAULT.get(highway_key, 650))
 
 def get_balanced_weight(u, v, edge_data, G, weight_type="balanced", exclude_highways=None):
     """

@@ -89,33 +89,44 @@ def _get_route_metrics(G, path):
     for u, v in zip(path[:-1], path[1:]):
         data = G.get_edge_data(u, v)[0]
         node_u = G.nodes[u]
+        node_v = G.nodes[v]
         
+        # 1. Acumular distancia y tiempo
         dist = data.get("length", 0)
         total_distance += dist
-        
         highway = data.get("highway", "unclassified")
         if isinstance(highway, list): highway = highway[0]
         
-        time_segment = get_real_time(dist, highway, data.get("maxspeed", 50))
-        total_time += time_segment
+        total_time += get_real_time(dist, highway, data.get("maxspeed", 50))
         
-        if node_u.get("toll"):
-            ref = node_u.get("ref")
+        # 2. Detección de Peaje (Consistente con el ruteo)
+        is_toll = node_u.get("toll") or node_v.get("toll") or data.get("toll")
+        
+        if is_toll:
+            ref = node_u.get("ref") or node_v.get("ref") or data.get("ref")
             if isinstance(ref, list): ref = ref[0]
-            if ref: ref = str(ref).strip().upper().replace(" ", "")
-            
-            # Buscamos el precio (Real o Fallback)
-            if ref in ALL_GANTRY_DATA:
-                price = ALL_GANTRY_DATA[ref]["price"]
-                h_name = ALL_GANTRY_DATA[ref]["highway_name"]
-            else:
-                price = TOLL_COSTS_DEFAULT.get(highway, 650)
-                h_name = f"Desconocida ({ref if ref else 'Sin ID'})"
+            clean_id = str(ref).strip().upper().replace(" ", "").replace("-", "") if ref else "S_ID"
 
-            # Evitar duplicados por segmentos cortados
-            if not passed_gantries or passed_gantries[-1]['ref'] != ref:
+            # BUSQUEDA CON PREFIJOS (Igual que en weight_service)
+            gantry_info = None
+            for prefix in ["", "AC_", "CN_", "VN_", "VS_"]:
+                test_key = f"{prefix}{clean_id}" if prefix and not clean_id.startswith(prefix) else clean_id
+                if test_key in ALL_GANTRY_DATA:
+                    gantry_info = ALL_GANTRY_DATA[test_key]
+                    break
+
+            if gantry_info:
+                price = gantry_info["price"]
+                h_name = gantry_info["highway_name"]
+            else:
+                # Fallback si sigue siendo desconocido
+                price = TOLL_COSTS_DEFAULT.get(highway, 650)
+                h_name = f"Desconocida ({clean_id})"
+
+            # Evitar duplicados (un pórtico suele ser un solo nodo, pero por si acaso)
+            if not passed_gantries or passed_gantries[-1]['ref'] != clean_id:
                 passed_gantries.append({
-                    "ref": ref,
+                    "ref": clean_id,
                     "highway": h_name,
                     "price": price
                 })
