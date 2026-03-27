@@ -3,7 +3,6 @@ from route_service import generate_route_with_details
 from plot_service import plot_multiple_routes
 
 def print_metrics(name, route_data):
-    """Muestra los resultados de forma legible en consola."""
     if not route_data or not route_data.get("success"):
         print(f"\n--- {name.upper()} ---")
         error_msg = route_data.get('error', 'No se encontró ruta.') if route_data else 'Sin respuesta'
@@ -16,27 +15,17 @@ def print_metrics(name, route_data):
     print(f"Tiempo: {summary['total_time_minutes']} min")
     print(f"Costo Peajes: ${int(summary['total_toll_cost'])}")
     
-    # Detalle de pórticos si existen
     gantries = route_data.get("gantries_detected", [])
     if gantries:
         print(f"Pórticos: {len(gantries)} cruzados")
-        # Opcional: imprimir los nombres de las autopistas usadas
         highways = set([g['highway'] for g in gantries])
         print(f"Autopistas: {', '.join(highways)}")
         
 def generate_3_point_route(G, lat1, lon1, lat2, lon2, lat3, lon3, **kwargs):
-    """
-    Calcula la ruta pasando por un punto intermedio (A -> B -> C)
-    y devuelve un objeto con la misma estructura que generate_route_with_details.
-    """
-    
-    # Tramo 1: Origen al Punto de Paso (A -> B)
     res1 = generate_route_with_details(G, lat1, lon1, lat2, lon2, **kwargs)
     
-    # Tramo 2: Punto de Paso al Destino (B -> C)
     res2 = generate_route_with_details(G, lat2, lon2, lat3, lon3, **kwargs)
     
-    # Si cualquiera de los dos tramos falla, la ruta completa falla
     if not res1["success"]:
         return {"success": False, "error": f"Tramo 1 falló: {res1.get('error')}"}
     if not res2["success"]:
@@ -60,8 +49,6 @@ def generate_3_point_route(G, lat1, lon1, lat2, lon2, lat3, lon3, **kwargs):
         "total_distance_meters": round(s1["total_distance_meters"] + s2["total_distance_meters"], 2)
     }
     
-    # --- UNIÓN DE PÓRTICOS ---
-    # Combinamos ambas listas de pórticos detectados
     all_gantries = res1.get("gantries_detected", []) + res2.get("gantries_detected", [])
 
     return {
@@ -73,83 +60,73 @@ def generate_3_point_route(G, lat1, lon1, lat2, lon2, lat3, lon3, **kwargs):
     }
 
 def main():
-    # 1. Carga del grafo
     G = load_graph()
 
-    # --- CONFIGURACIÓN DE PUNTOS ---
-    # Origen: Maipú (Sector Pajaritos)
-    lat_orig, lon_orig = -33.4820, -70.7620
-    # Este punto está ANTES del nudo con Costanera Norte
-    lat_mid, lon_mid = -33.4615, -70.6625
-    # Destino: Vitacura (Parque Bicentenario)
-    lat_dest, lon_dest = -33.3980, -70.5900
+    puntos_a = {
+        "orig": (-33.610153, -70.554998), 
+        "dest": (-33.357953, -70.747694)
+    }
 
-    print("\n=== CALCULANDO ESCENARIOS DE RUTA EN SANTIAGO ===")
+    print("\n" + "="*50)
 
-    # ESCENARIO A: Equilibrada (Directa)
+    # --- GENERACIÓN DE ESCENARIOS ---
+
+    # A. EQUILIBRADA: El algoritmo decide el mejor mix Tiempo/Dinero
     res_balanced = generate_route_with_details(
-        G, lat_orig, lon_orig, lat_dest, lon_dest, 
+        G, *puntos_a["orig"], *puntos_a["dest"], 
         weight_type="balanced"
     )
 
-    # ESCENARIO B: Súper Ahorro (Sin TAG)
+    # B. SÚPER AHORRO: Bloqueo total de TAG (Obliga a ir por calles locales)
     autopistas_tag = ["Autopista Central", "Costanera Norte", "Vespucio Norte", "Vespucio Sur"]
     res_cheap = generate_route_with_details(
-        G, lat_orig, lon_orig, lat_dest, lon_dest, 
+        G, *puntos_a["orig"], *puntos_a["dest"], 
         exclude_highways=autopistas_tag,
         weight_type="cost"
     )
 
-    # ESCENARIO C: Evitando solo Autopista Central
-    res_no_central = generate_route_with_details(
-        G, lat_orig, lon_orig, lat_dest, lon_dest, 
-        exclude_highways=["Autopista Central"],
-        weight_type="balanced"
+    # C. PRIORIDAD TIEMPO: No importa el costo, solo llegar rápido
+    res_fast = generate_route_with_details(
+        G, *puntos_a["orig"], *puntos_a["dest"], 
+        weight_type="time"
     )
 
-    # ESCENARIO D: Distancia Corta (Solo metros)
+    # D. DISTANCIA CORTA: Mínimos metros (Callejeo puro)
     res_shortest = generate_route_with_details(
-        G, lat_orig, lon_orig, lat_dest, lon_dest, 
+        G, *puntos_a["orig"], *puntos_a["dest"], 
         weight_type="length"
     )
 
-    # NUEVO ESCENARIO E: Ruta Forzada (3 Puntos: Maipú -> Central/Costanera -> Vitacura)
-    # Este escenario garantiza que pase por el nudo de autopistas para probar los cobros
-    res_forced = generate_3_point_route(
-        G, 
-        lat_orig, lon_orig,   # Punto 1
-        lat_mid, lon_mid,     # Punto 2 (Paso)
-        lat_dest, lon_dest,   # Punto 3
-        weight_type="balanced"
-    )
+    # --- PROCESAMIENTO Y RESUMEN ---
 
-    # 3. Lista para procesar y graficar
     rutas_para_comparar = [
-        ("Equilibrada (Sugerida)", res_balanced),
-        ("Súper Ahorro (Sin TAG)", res_cheap),
-        ("Evitando A. Central", res_no_central),
-        ("Distancia Corta", res_shortest),
-        ("Forzada (Central + Costanera)", res_forced) # <--- Nueva ruta en la comparativa
+        ("Ruta Equilibrada (Sugerida)", res_balanced),
+        ("Ruta Súper Ahorro (Sin TAG)", res_cheap),
+        ("Ruta Ejecutiva (Solo Tiempo)", res_fast),
+        ("Ruta Distancia Corta (Metros)", res_shortest)
     ]
 
-    # 4. Mostrar métricas en consola
-    print("\n" + "="*40)
-    print("      RESUMEN COMPARATIVO DE RUTAS")
-    print("="*40)
+    print("\n" + "*"*40)
+    print("      RESUMEN COMPARATIVO FINAL")
+    print("*"*40)
     
     for nombre, res in rutas_para_comparar:
-        print_metrics(nombre, res)
+        if res and res.get("success"):
+            print_metrics(nombre, res)
+        else:
+            print(f"--- {nombre} ---")
+            print(f"Error: {res.get('error', 'Desconocido')}\n")
 
-    # 5. Visualización en el Mapa
+    # --- VISUALIZACIÓN ---
+
     valid_paths = [r["path"] for n, r in rutas_para_comparar if r and r.get("success")]
     valid_names = [n for n, r in rutas_para_comparar if r and r.get("success")]
 
     if valid_paths:
-        print("\n[SISTEMA] Abriendo mapa comparativo...")
-        # El plot mostrará todas las rutas y los pórticos en amarillo neón
+        print("\n[SISTEMA] Generando visualización de capas en mapa...")
         plot_multiple_routes(G, valid_paths, valid_names)
     else:
-        print("\n[ERROR] No se pudo generar ninguna ruta válida para graficar.")
+        print("\n[ERROR] No hay rutas válidas para graficar. Revisa los puntos de origen/destino.")
 
 if __name__ == "__main__":
     main()

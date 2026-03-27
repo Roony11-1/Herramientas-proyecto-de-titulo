@@ -131,17 +131,29 @@ def calculate_edge_metrics(data):
     """
     Calcula el set completo de métricas definidas en REQUIRED_METRICS.
     """
+    # 1. Extraer y limpiar Longitud y Highway
     length = data.get("length", 0)
     if isinstance(length, list): length = length[0]
     
     highway = data.get("highway", "unclassified")
     if isinstance(highway, list): highway = highway[0]
     
-    # Valores base
-    time_val = get_real_time(length, highway, data.get("maxspeed", 50))
-    cost_val = get_monetary_cost(length, highway, data)
+    is_toll = str(data.get("toll")).lower() == "true"
+    gantry_id = data.get("ref")
+    if isinstance(gantry_id, list): gantry_id = gantry_id[0]
     
-    # Retornamos el diccionario mapeado a la lista maestra
+    # 3. Cálculo de valores base
+    time_val = get_real_time(length, highway, data.get("maxspeed", 50))
+    
+    # CORRECCIÓN AQUÍ: Pasamos los 4 argumentos requeridos + opcionales si existen
+    cost_val = get_monetary_cost(
+        length=length, 
+        highway=highway, 
+        gantry_id=gantry_id, 
+        is_toll=is_toll
+    )
+    
+    # 4. Retornamos el diccionario mapeado
     return {
         "length": float(length),
         "time": float(time_val),

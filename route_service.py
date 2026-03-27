@@ -79,7 +79,8 @@ def _validate_node_distance(
     if dist <= max_dist:
         return True
     else:
-        print(f"ERROR: El punto seleccionado está muy lejos de la red vial ({dist:.2f}m)")
+        print(f"ERROR DE RANGO en coordenadas: ({lat}, {lon})")
+        print(f"Distancia al nodo más cercano: {dist:.2f}m (Límite: {max_dist}m)")
         return False
 
 def _get_route_metrics(G, path):

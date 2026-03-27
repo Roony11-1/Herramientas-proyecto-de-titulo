@@ -23,7 +23,7 @@ places: List[str] = [
     "La Cisterna, Chile", "Ñuñoa, Chile", "San Ramón, Chile",
     "La Florida, Chile", "Pedro Aguirre Cerda, Chile", "Santiago, Chile",
     "La Pintana, Chile", "Peñalolén, Chile", "Vitacura, Chile",
-    "La Granja, Chile", "Providencia, Chile"
+    "La Granja, Chile", "Providencia, Chile", "Puente Alto, Chile"
 ]
 def load_graph() -> nx.MultiDiGraph:
     print("=== INICIO load_graph ===")
